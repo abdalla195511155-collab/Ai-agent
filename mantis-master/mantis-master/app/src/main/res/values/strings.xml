@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MANTIS</string>
+    <string name="accessibility_service_description">Allows MANTIS to read the screen and perform actions on your behalf to complete tasks autonomously.</string>
+    <string name="keyboard_ime_label">MANTIS Keyboard</string>
+</resources>

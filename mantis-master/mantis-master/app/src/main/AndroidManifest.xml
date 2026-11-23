@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Network (LLM API calls only — never to any Mantis server) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Foreground service (Phase 4 — AgentService) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Screen capture foreground service (Phase 2 — MantisScreenCapture) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
+    <!-- Accessibility service (Phase 2) -->
+    <!-- BIND_ACCESSIBILITY_SERVICE is declared in the service entry, not here -->
+
+    <!-- Screen capture (Phase 2 — MediaProjection) -->
+    <!-- MEDIA_PROJECTION permission is requested at runtime, no manifest entry needed -->
+
+    <!-- Overlay (Phase 2 — MantisOverlayService) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Battery optimization exemption -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Notifications (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Biometric -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+
+    <!-- Boot receiver (Phase 10 — service restart) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Phase 4 — AgentService: keeps CPU alive during agent loop execution -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:name=".MantisApp"
+        android:label="MANTIS"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Mantis"
+        android:allowBackup="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Phase 2 Step 2: MantisAccessibilityService — full UI tree reader -->
+        <service
+            android:name=".accessibility.MantisAccessibilityService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Phase 2 Step 1: AgentBridge — local IPC backbone -->
+        <!-- exported=false: internal use only, never exposed to other apps -->
+        <!-- stopWithTask=false: Android attempts restart if process is killed; -->
+        <!--   full restart hardening added in Phase 4 with foreground AgentService -->
+        <service
+            android:name=".bridge.AgentBridge"
+            android:exported="false"
+            android:stopWithTask="false" />
+
+        <!-- Phase 2 Step 4: MantisKeyboardIME — programmatic text input -->
+        <!-- BIND_INPUT_METHOD: system permission required to bind to any IME -->
+        <!-- exported=true: mandatory for the system to discover and bind this IME -->
+        <service
+            android:name=".ime.MantisKeyboardIME"
+            android:label="@string/keyboard_ime_label"
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
+        <!-- Phase 2 Step 5: MantisScreenCapture — MediaProjection foreground service -->
+        <!-- foregroundServiceType="mediaProjection": required by Android 14+ -->
+        <!-- exported=false: started internally only, never by other apps -->
+        <service
+            android:name=".capture.MantisScreenCapture"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- Phase 2 Step 6: MantisOverlayService — Set-of-Marks element overlay -->
+        <!-- exported=false: started internally only, never by other apps -->
+        <!-- SYSTEM_ALERT_WINDOW is declared above; no foregroundServiceType needed -->
+        <service
+            android:name=".overlay.MantisOverlayService"
+            android:exported="false" />
+
+        <!-- Phase 4: AgentService — foreground agent loop + WakeLock -->
+        <!-- foregroundServiceType="specialUse": required on Android 14+ for general-purpose agents -->
+        <!-- exported=false: started internally only, never by other apps -->
+        <service
+            android:name=".agent.AgentService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false" />
+
+        <!-- Phase 10 Step 4: BootReceiver — reschedules WorkManager tasks after device reboot -->
+        <receiver
+            android:name=".boot.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

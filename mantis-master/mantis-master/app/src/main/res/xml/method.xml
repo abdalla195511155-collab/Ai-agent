@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Input method configuration for MantisKeyboardIME.
+    This IME has no visible keyboard — it exists solely for programmatic
+    text injection by the MANTIS agent via InputConnection.
+-->
+<input-method xmlns:android="http://schemas.android.com/apk/res/android">
+    <subtype
+        android:label="@string/keyboard_ime_label"
+        android:imeSubtypeMode="keyboard"
+        android:imeSubtypeLocale="en_US" />
+</input-method>

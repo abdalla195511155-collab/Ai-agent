@@ -1,0 +1,37 @@
+# ── Sensitive / local ─────────────────────────────────────────────────────────
+local.properties
+*.jks
+*.keystore
+
+# ── Claude Code / AI agent folders ────────────────────────────────────────────
+.claude/
+.agents/
+
+# ── Project spec / init files (not part of the Android source) ────────────────
+init.md
+CLAUDE.md
+skills-lock.json
+docs/
+
+# ── Crash dumps ───────────────────────────────────────────────────────────────
+*.hprof
+
+# ── Gradle build output ───────────────────────────────────────────────────────
+.gradle/
+build/
+app/build/
+**/build/
+
+# ── Android Studio IDE ────────────────────────────────────────────────────────
+.idea/
+*.iml
+.kotlin/
+captures/
+*.DS_Store
+
+# ── Kotlin / Java ─────────────────────────────────────────────────────────────
+*.class
+
+# ── Generated files ───────────────────────────────────────────────────────────
+gen/
+generated/
