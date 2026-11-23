@@ -9,7 +9,6 @@ on:
 
 env:
   WORKING_DIRECTORY: mantis-master/mantis-master
-  ANDROID_SDK_API_LEVEL: 35
 
 jobs:
   build:
@@ -29,9 +28,10 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          api-level: ${{ env.ANDROID_SDK_API_LEVEL }}
-          target: android-35
-          build-tools: 35.0.0
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
 
       - name: Validate Gradle Wrapper
         working-directory: ${{ env.WORKING_DIRECTORY }}
