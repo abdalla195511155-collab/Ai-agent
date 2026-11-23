@@ -1,3 +1,7 @@
+package com.mantis.storage
+
+import kotlinx.serialization.SerialName
+
 /**
  * Configuration for a single AI provider.
  *
@@ -26,42 +30,42 @@ data class ProviderConfig(
     val modelId: String,
 
     /** API protocol type. */
-    @SerializedName("protocol")
+    @SerialName("protocol")
     val protocol: ProviderProtocol,
 
     /** Authentication type. */
-    @SerializedName("auth_type")
+    @SerialName("auth_type")
     val authType: ProviderAuthType,
 
     /** Custom header name for API key (used with CUSTOM_API_KEY_HEADER auth type). */
-    @SerializedName("custom_header_name")
+    @SerialName("custom_header_name")
     val customHeaderName: String? = null,
 
     /** Custom header value for API key (used with CUSTOM_API_KEY_HEADER auth type). */
-    @SerializedName("custom_header_value")
+    @SerialName("custom_header_value")
     val customHeaderValue: String? = null,
 
     /** Request timeout in milliseconds. */
-    @SerializedName("timeout_ms")
+    @SerialName("timeout_ms")
     val timeoutMs: Int = 30_000,
 
     /** Whether this provider is currently active. */
-    @SerializedName("is_active")
+    @SerialName("is_active")
     val isActive: Boolean = false
 )
 
 /** API protocol types. */
 enum class ProviderProtocol {
-    @SerializedName("openai_compatible")
+    @SerialName("openai_compatible")
     OPENAI_COMPATIBLE,
-    @SerializedName("native")
+    @SerialName("native")
     NATIVE
 }
 
 /** Authentication types. */
 enum class ProviderAuthType {
-    @SerializedName("bearer_token")
+    @SerialName("bearer_token")
     BEARER_TOKEN,
-    @SerializedName("custom_api_key_header")
+    @SerialName("custom_api_key_header")
     CUSTOM_API_KEY_HEADER
 }
