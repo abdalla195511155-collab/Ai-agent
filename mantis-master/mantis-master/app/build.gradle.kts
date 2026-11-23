@@ -12,6 +12,19 @@ val localProps = Properties().apply {
     if (f.exists()) load(f.inputStream())
 }
 
+// Release signing is optional for CI/debug builds. Never require local secrets
+// while Gradle configures the release variant.
+val releaseStoreFile = localProps.getProperty("RELEASE_STORE_FILE")
+val releaseStorePassword = localProps.getProperty("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = localProps.getProperty("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD")
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.mantis"
     compileSdk = 35
@@ -25,11 +38,13 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile     = file(localProps["RELEASE_STORE_FILE"] as String)
-            storePassword = localProps["RELEASE_STORE_PASSWORD"] as String
-            keyAlias      = localProps["RELEASE_KEY_ALIAS"] as String
-            keyPassword   = localProps["RELEASE_KEY_PASSWORD"] as String
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword!!
+                keyAlias = releaseKeyAlias!!
+                keyPassword = releaseKeyPassword!!
+            }
         }
     }
 
@@ -40,7 +55,11 @@ android {
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                logger.lifecycle("Release signing is not configured; building an unsigned release variant.")
+            }
         }
     }
 
