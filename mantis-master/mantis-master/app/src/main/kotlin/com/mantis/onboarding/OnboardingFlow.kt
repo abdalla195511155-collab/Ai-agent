@@ -39,6 +39,11 @@ fun OnboardingFlow(navController: NavController) {
     when (state.step) {
         OnboardingStep.NAME -> NameScreen(state = state, vm = vm)
         OnboardingStep.LLM_SELECT -> LLMSelectScreen(state = state, vm = vm)
+        OnboardingStep.CUSTOM_API_SETTINGS -> CustomAPISettingsScreen(
+            state = state,
+            vm = vm,
+            onSave = { /* continuar después de guardar */ },
+        )
         OnboardingStep.API_KEY -> APIKeyScreen(state = state, vm = vm)
         OnboardingStep.ACCESSIBILITY -> AccessibilityPermissionScreen(state = state, vm = vm)
         OnboardingStep.SCREEN_CAPTURE -> ScreenCapturePermissionScreen(state = state, vm = vm)

@@ -7,6 +7,9 @@ import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mantis.MantisApp
+import com.mantis.llm.ProviderAuthType
+import com.mantis.llm.ProviderProtocol
+import com.mantis.storage.ProviderConfig
 import com.mantis.permissions.ManufacturerGuide
 import com.mantis.permissions.ManufacturerGuides
 import kotlinx.coroutines.Dispatchers
@@ -22,15 +25,20 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.SecretKeyFactory
 
 enum class OnboardingStep {
-    NAME, LLM_SELECT, API_KEY, ACCESSIBILITY, SCREEN_CAPTURE, BATTERY_OVERLAY, SET_LOCK, DONE
+    NAME, LLM_SELECT, CUSTOM_API_SETTINGS, API_KEY, ACCESSIBILITY, SCREEN_CAPTURE, BATTERY_OVERLAY, SET_LOCK, DONE
 }
 
 data class OnboardingState(
     val step: OnboardingStep = OnboardingStep.NAME,
     val name: String = "",
-    val llmChoice: String = "",         // "claude" | "openai" | "gemini" | "local"
+    val llmChoice: String = "",         // "claude" | "openai" | "gemini" | "custom_api"
     val apiKey: String = "",
     val apiKeyVisible: Boolean = false,
+    val customApiKey: String = "",
+    val customModelId: String = "",
+    val customBaseUrl: String = "https://integrate.api.nvidia.com/v1",
+    val customConnectionStatus: String = "", // "" | "testing" | "success" | "error"
+    val customConnectionResult: ConnectionTestResult? = null,
     val isAccessibilityGranted: Boolean = false,
     val isMediaProjectionGranted: Boolean = false,
     val isOverlayGranted: Boolean = false,
@@ -68,8 +76,11 @@ class OnboardingViewModel(app: Application) : AndroidViewModel(app) {
         val choice = _state.value.llmChoice
         if (choice.isBlank()) return
         secureConfig.llmChoice = choice
-        // Local model has no API key
-        val next = if (choice == "local") OnboardingStep.ACCESSIBILITY else OnboardingStep.API_KEY
+        // Custom API goes to its settings screen; other providers go to API key screen
+        val next = when (choice) {
+            "custom_api" -> OnboardingStep.CUSTOM_API_SETTINGS
+            else -> OnboardingStep.API_KEY
+        }
         _state.update { it.copy(step = next) }
     }
 
@@ -82,8 +93,86 @@ class OnboardingViewModel(app: Application) : AndroidViewModel(app) {
     fun submitApiKey() {
         val key = _state.value.apiKey.trim()
         if (key.isBlank()) return
-        secureConfig.setApiKey(key)
+        secureConfig.setApiKey(_state.value.llmChoice, key)
         _state.update { it.copy(step = OnboardingStep.ACCESSIBILITY) }
+    }
+
+    // ── Step 3b: Custom API settings ────────────────────────────────────────────
+
+    fun onCustomApiKeyChange(value: String) =
+        _state.update { it.copy(customApiKey = value, customConnectionStatus = "", customConnectionResult = null) }
+
+    fun onCustomModelIdChange(value: String) =
+        _state.update { it.copy(customModelId = value, customConnectionStatus = "", customConnectionResult = null) }
+
+    fun onCustomBaseUrlChange(value: String) =
+        _state.update { it.copy(customBaseUrl = value, customConnectionStatus = "", customConnectionResult = null) }
+
+    fun testCustomConnection() {
+        val st = _state.value
+        if (st.customApiKey.isBlank() || st.customModelId.isBlank() || st.customBaseUrl.isBlank()) return
+
+        _state.update { it.copy(customConnectionStatus = "testing", customConnectionResult = null) }
+
+        viewModelScope.launch {
+            try {
+                val client = io.ktor.client.HttpClient(io.ktor.client.engine.android.Android)
+                try {
+                    val baseUrl = st.customBaseUrl.trim()
+                    val url = if (baseUrl.endsWith("/")) "${baseUrl}models" else "${baseUrl}/models"
+
+                    val response = client.get(url) {
+                        header("Authorization", "Bearer ${st.customApiKey.trim()}")
+                        header("Content-Type", "application/json")
+                    }
+
+                    val ok = response.status.isSuccess()
+                    _state.update {
+                        it.copy(
+                            customConnectionStatus = if (ok) "success" else "error",
+                            customConnectionResult = ConnectionTestResult(
+                                success = ok,
+                                message = if (ok) "Connection successful" else "Connection failed (HTTP ${response.status.value})",
+                            ),
+                        )
+                    }
+                } finally {
+                    client.close()
+                }
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        customConnectionStatus = "error",
+                        customConnectionResult = ConnectionTestResult(
+                            success = false,
+                            message = "Error: ${e.message ?: "unknown error"}",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun saveCustomApiSettings(onSave: () -> Unit) {
+        val st = _state.value
+        if (st.customApiKey.isBlank() || st.customModelId.isBlank() || st.customBaseUrl.isBlank()) return
+
+        val config = ProviderConfig(
+            id = "custom_api",
+            name = "Custom API",
+            baseUrl = st.customBaseUrl.trim(),
+            modelId = st.customModelId.trim(),
+            protocol = ProviderProtocol.OPENAI_COMPATIBLE,
+            authType = ProviderAuthType.BEARER_TOKEN,
+            timeoutMs = 30_000,
+        )
+
+        secureConfig.setProviderConfig("custom_api", config)
+        secureConfig.setApiKey("custom_api", st.customApiKey.trim())
+
+        // المضي قدماً في عملية التسجيل
+        _state.update { it.copy(step = OnboardingStep.ACCESSIBILITY) }
+        onSave()
     }
 
     // ── Step 4: Accessibility ─────────────────────────────────────────────────

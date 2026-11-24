@@ -37,7 +37,7 @@ private val LLM_OPTIONS = listOf(
     LlmOption("claude", "Claude",      "by Anthropic", true,  R.drawable.ic_claude),
     LlmOption("openai", "OpenAI",      "GPT-4o",       true,  R.drawable.ic_openai),
     LlmOption("gemini", "Gemini",      "by Google",    true,  R.drawable.ic_gemini),
-    LlmOption("local",  "Local Model", "Coming Soon",  false, null),
+    LlmOption("custom_api", "Custom API", "Generic or Self-hosted\nIntegrate any compatible model", true, R.drawable.ic_settings),
 )
 
 @Composable
