@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -38,15 +39,10 @@ fun CustomAPISettingsScreen(
     vm: OnboardingViewModel,
     onSave: () -> Unit,
 ) {
-    // حالة محلية لحقول النموذج (تُمرر من ViewModel في النسخة النهائية، هنا تُدار محلياً للبساطة)
-    val apiKey by remember { mutableStateOf(state.customApiKey) }
-    val modelId by remember { mutableStateOf(state.customModelId) }
-    val baseUrl by remember { mutableStateOf(state.customBaseUrl) }
-
-    // تحديث قيم ViewModel عند التغيير
-    if (apiKey != state.customApiKey) vm.onCustomApiKeyChange(apiKey)
-    if (modelId != state.customModelId) vm.onCustomModelIdChange(modelId)
-    if (baseUrl != state.customBaseUrl) vm.onCustomBaseUrlChange(baseUrl)
+    // القيم تُقرأ مباشرة من حالة ViewModel حتى تظهر المدخلات فور الكتابة
+    val apiKey = state.customApiKey
+    val modelId = state.customModelId
+    val baseUrl = state.customBaseUrl
 
     val isFormValid = apiKey.isNotBlank() && modelId.isNotBlank() && baseUrl.isNotBlank()
     val connectionStatus = state.customConnectionStatus
