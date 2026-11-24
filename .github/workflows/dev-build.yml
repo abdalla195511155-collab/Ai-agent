@@ -1,0 +1,100 @@
+name: Dev - apply payload and build
+
+on:
+  push:
+    branches: [ dev/autonomous-agent ]
+    paths: [ 'payload/**', '.github/workflows/dev-build.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  WD: mantis-master/mantis-master
+
+jobs:
+  build:
+    name: Apply payload, build, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply new payload files
+        id: apply
+        run: |
+          set -e
+          touch payload/applied.txt 2>/dev/null || { mkdir -p payload; touch payload/applied.txt; }
+          changed=0
+          for f in $(ls payload/*.b64 2>/dev/null | sort); do
+            if ! grep -qx "$f" payload/applied.txt; then
+              echo "applying $f"
+              base64 -d "$f" | tar xz -C .
+              echo "$f" >> payload/applied.txt
+              changed=1
+            fi
+          done
+          if [ -f payload/deletes.txt ]; then
+            while read -r p; do [ -n "$p" ] && git rm -rf --ignore-unmatch -- "$p" || true; done < payload/deletes.txt
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Commit applied files
+        if: steps.apply.outputs.changed == '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          msg="$(cat payload/MESSAGE.txt 2>/dev/null || echo 'Apply payload')"
+          git commit -m "$msg" || true
+          git push origin HEAD:${GITHUB_REF_NAME}
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install Android SDK packages
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-dev-${{ hashFiles('**/*.kts', '**/libs.versions.toml') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: Build debug APK and run unit tests
+        working-directory: ${{ env.WD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug testDebugUnitTest --no-daemon --continue 2>&1 | tee /tmp/build.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Build result for $(git rev-parse --short HEAD)"
+            echo "- job status: ${{ job.status }}"
+            ls -l "$WD/app/build/outputs/apk/debug/" 2>/dev/null | sed 's/^/    /' || true
+            echo '```'
+            grep -E "^e: |error:|FAILED|BUILD (SUCCESSFUL|FAILED)|tests completed" /tmp/build.log | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dev-build-${{ github.run_number }}
+          path: |
+            ${{ env.WD }}/app/build/outputs/apk/debug/*.apk
+            ${{ env.WD }}/app/build/reports/tests/
+            /tmp/build.log
+          retention-days: 30
