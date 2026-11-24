@@ -7,11 +7,14 @@ import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mantis.MantisApp
-import com.mantis.llm.ProviderAuthType
-import com.mantis.llm.ProviderProtocol
+import com.mantis.storage.ProviderAuthType
+import com.mantis.storage.ProviderProtocol
 import com.mantis.storage.ProviderConfig
 import com.mantis.permissions.ManufacturerGuide
 import com.mantis.permissions.ManufacturerGuides
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.http.isSuccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
