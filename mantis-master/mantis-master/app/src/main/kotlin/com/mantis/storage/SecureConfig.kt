@@ -1,256 +1,149 @@
 package com.mantis.storage
 
 import android.content.Context
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
-import android.util.Base64
+import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import java.security.KeyStore
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import com.mantis.storage.ProviderConfig
 
 /**
- * Single source of truth for all persistent MANTIS configuration.
- *
- * Two storage tiers:
- *  1. Android Keystore — AES/GCM encryption of per-provider API keys.
- *     One key alias per provider, isolated by provider ID (e.g. "mantis_api_key_openai").
- *  2. EncryptedSharedPreferences backed by MasterKey — all other settings
- *     (name, onboarding state, PIN hash/salt, lock config, provider configs).
- *
- * Provider configs are stored as JSON strings in encrypted shared preferences,
- * keyed by "provider_{id}". Each provider's API key is stored separately in the
- * Android Keystore under alias "mantis_api_key_{providerId}".
- *
- * Instantiate once in MantisApp and access via (context.applicationContext as MantisApp).secureConfig.
- *
- * Backward compatibility:
- *   - Legacy single API key stored under "mantis_api_key" alias is preserved.
- *   - Existing Claude/OpenAI/Gemini provider configs are migrated on first launch.
+ * Encrypted persistent storage for app settings, provider configurations and API keys.
  */
 class SecureConfig(context: Context) {
-
     private val appContext = context.applicationContext
-
-    // ── EncryptedSharedPreferences ──────────────────────────────────────────────
-
     private val masterKey = MasterKey.Builder(appContext)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
-
-    private val prefs = EncryptedSharedPreferences.create(
+    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
         appContext,
         "mantis_secure_prefs",
         masterKey,
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    // ── Android Keystore — per-provider API keys ────────────────────────────────
+    var name: String
+        get() = prefs.getString("name", "") ?: ""
+        set(value) = prefs.edit().putString("name", value).apply()
 
-    private val keyStore = KeyStore.getInstance("AndroidKeyStore").also { it.load(null) }
+    var llmChoice: String
+        get() = prefs.getString("llm_choice", "").orEmpty()
+        set(value) = prefs.edit().putString("llm_choice", value).apply()
 
-    /**
-     * Gets the Keystore alias for a provider's API key.
-     *
-     * @param providerId Unique provider ID (e.g. "openai", "claude", "gemini", "custom-provider").
-     * @return Keystore alias string.
-     */
-    private fun getApiKeyAlias(providerId: String): String = "mantis_api_key_${providerId.toLowerCase().replace(" ", "_")}"
+    var maxStepsSetting: Int
+        get() = prefs.getInt("max_steps", 30)
+        set(value) = prefs.edit().putInt("max_steps", value.coerceIn(1, 200)).apply()
 
-    /**
-     * Stores an API key in the Android Keystore for the given provider.
-     * The key is never exported in plaintext; it remains within the Keystore.
-     *
-     * @param providerId Unique provider identifier.
-     * @param apiKey     The raw API key string to associate with the alias (will be
-     *                     stored encrypted via Keystore APIs; for this implementation,
-     *                     we store a reference/placeholder and the raw key in encrypted prefs
-     *                     as a fallback for compatibility).
-     */
+    var isLockEnabled: Boolean
+        get() = prefs.getBoolean("lock_enabled", false)
+        set(value) = prefs.edit().putBoolean("lock_enabled", value).apply()
+
+    var isBiometricEnabled: Boolean
+        get() = prefs.getBoolean("biometric_enabled", false)
+        set(value) = prefs.edit().putBoolean("biometric_enabled", value).apply()
+
+    var pinHash: String
+        get() = prefs.getString("pin_hash", "").orEmpty()
+        set(value) = prefs.edit().putString("pin_hash", value).apply()
+
+    var pinSalt: String
+        get() = prefs.getString("pin_salt", "").orEmpty()
+        set(value) = prefs.edit().putString("pin_salt", value).apply()
+
+    var isMediaProjectionValid: Boolean
+        get() = prefs.getBoolean("media_projection_valid", false)
+        set(value) = prefs.edit().putBoolean("media_projection_valid", value).apply()
+
+    var isOnboarded: Boolean
+        get() = prefs.getBoolean("is_onboarded", false)
+        set(value) = prefs.edit().putBoolean("is_onboarded", value).apply()
+
+    var lastActiveTimestamp: Long
+        get() = prefs.getLong("last_active_timestamp", 0L)
+        set(value) = prefs.edit().putLong("last_active_timestamp", value).apply()
+
+    private fun apiKeyPref(providerId: String) =
+        "api_key_${providerId.lowercase().replace(" ", "_")}"
+
     fun setApiKey(providerId: String, apiKey: String) {
-        val alias = getApiKeyAlias(providerId)
-        try {
-            // Attempt to store a reference in Keystore; the actual key material
-            // is also stored encrypted in shared prefs as a fallback.
-            Log.d(TAG, "API key configured for provider: $providerId (alias: $alias)")
-            // Store the key encrypted in shared prefs as the primary mechanism,
-            // since direct Keystore raw export is limited without a wrapping activity.
-            val prefsKey = "api_key_$alias"
-            prefs.edit().putString(prefsKey, apiKey).apply()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to store API key for provider: $providerId", e)
-        }
+        prefs.edit().putString(apiKeyPref(providerId), apiKey).apply()
     }
 
-    /**
-     * Retrieves an API key for the given provider.
-     *
-     * @param providerId Unique provider identifier.
-     * @return The API key string, or null if not found.
-     */
-    fun getApiKey(providerId: String): String? {
-        val alias = getApiKeyAlias(providerId)
-        val prefsKey = "api_key_$alias"
-        return prefs.getString(prefsKey, null)
-    }
+    fun getApiKey(providerId: String): String? = prefs.getString(apiKeyPref(providerId), null)
 
-    /**
-     * Checks whether an API key exists for the given provider.
-     *
-     * @param providerId Unique provider identifier.
-     * @return true if an API key is configured.
-     */
-    fun hasApiKey(providerId: String): Boolean {
-        val alias = getApiKeyAlias(providerId)
-        val prefsKey = "api_key_$alias"
-        return prefs.contains(prefsKey)
-    }
+    fun hasApiKey(providerId: String): Boolean = !getApiKey(providerId).isNullOrBlank()
 
-    // ── Provider configuration ──────────────────────────────────────────────────
+    // Compatibility overloads for the built-in single-provider connectors.
+    fun setApiKey(apiKey: String) = setApiKey(llmChoice.ifBlank { "default" }, apiKey)
+    fun getApiKey(): String? = getApiKey(llmChoice.ifBlank { "default" })
+    fun hasApiKey(): Boolean = hasApiKey(llmChoice.ifBlank { "default" })
 
-    private const val KEY_PROVIDERS_ROOT = "providers"
-
-    /**
-     * Saves a [ProviderConfig] for the given provider ID.
-     *
-     * @param providerId Unique provider identifier.
-     * @param config     The provider configuration to persist.
-     */
     fun setProviderConfig(providerId: String, config: ProviderConfig) {
-        val json = Json.serialize(config)
-        val key = "$KEY_PROVIDERS_ROOT/${providerId.toLowerCase().replace(" ", "_")}"
-        prefs.edit().putString(key, json).apply()
+        prefs.edit().putString(providerPref(providerId), json.encodeToString(config)).apply()
     }
 
-    /**
-     * Retrieves a [ProviderConfig] for the given provider ID.
-     *
-     * @param providerId Unique provider identifier.
-     * @return The provider configuration, or null if not found.
-     */
-    fun getProviderConfig(providerId: String): ProviderConfig? {
-        val key = "$KEY_PROVIDERS_ROOT/${providerId.toLowerCase().replace(" ", "_")}"
-        val json = prefs.getString(key, null)
-        return json?.let { Json.deserialize<ProviderConfig>(it) }
-    }
+    fun getProviderConfig(providerId: String): ProviderConfig? =
+        prefs.getString(providerPref(providerId), null)?.let {
+            runCatching { json.decodeFromString<ProviderConfig>(it) }
+                .onFailure { error -> Log.e(TAG, "Invalid provider config: $providerId", error) }
+                .getOrNull()
+        }
 
-    /**
-     * Lists all saved provider IDs.
-     *
-     * @return List of provider configuration IDs.
-     */
-    fun getProviderIds(): List<String> {
-        return prefs.keys()
-            .filter { it.startsWith("$KEY_PROVIDERS_ROOT/") }
-            .map { it.removePrefix("$KEY_PROVIDERS_ROOT/") }
-    }
+    fun getProviderIds(): List<String> = prefs.all.keys
+        .filter { it.startsWith(PROVIDER_PREFIX) }
+        .map { it.removePrefix(PROVIDER_PREFIX) }
+        .sorted()
 
-    /**
-     * Checks whether a provider configuration exists.
-     *
-     * @param providerId Unique provider identifier.
-     * @return true if config exists.
-     */
-    fun hasProviderConfig(providerId: String): Boolean {
-        val key = "$KEY_PROVIDERS_ROOT/${providerId.toLowerCase().replace(" ", "_")}"
-        return prefs.contains(key)
-    }
+    fun hasProviderConfig(providerId: String): Boolean = prefs.contains(providerPref(providerId))
 
-    /**
-     * Sets a provider as the active provider.
-     *
-     * @param providerId Unique provider identifier.
-     */
     fun setActiveProvider(providerId: String) {
-        // Mark all providers as inactive, then mark this one as active
         getProviderIds().forEach { id ->
-            setProviderConfig(id, getProviderConfig(id)?.copy(isActive = false) ?: ProviderConfig(
-                id = id,
-                name = id,
-                baseUrl = "",
-                modelId = "",
-                protocol = ProviderProtocol.OPENAI_COMPATIBLE,
-                authType = ProviderAuthType.BEARER_TOKEN
-            ))
+            getProviderConfig(id)?.let { setProviderConfig(id, it.copy(isActive = id == providerId)) }
         }
-        setProviderConfig(providerId, getProviderConfig(providerId)?.copy(isActive = true) ?: ProviderConfig(
-            id = providerId,
-            name = providerId,
-            baseUrl = "",
-            modelId = "",
-            protocol = ProviderProtocol.OPENAI_COMPATIBLE,
-            authType = ProviderAuthType.BEARER_TOKEN
-        ))
+        getProviderConfig(providerId)?.let { setProviderConfig(providerId, it.copy(isActive = true)) }
+        llmChoice = providerId
     }
 
-    // ── Legacy single-provider API key (backward compatibility) ─────────────────
-
-    /**
-     * Gets the legacy API key (for backward compatibility with existing setup).
-     * @return The legacy API key, or null if not set.
-     */
-    fun getLegacyApiKey(): String? {
-        return prefs.getString("legacy_api_key", null)
+    fun deleteProvider(providerId: String) {
+        prefs.edit().remove(providerPref(providerId)).remove(apiKeyPref(providerId)).apply()
+        if (llmChoice == providerId) llmChoice = ""
     }
 
-    /**
-     * Sets the legacy API key (migrates from old single-key format).
-     * @param key The API key to store in legacy format.
-     */
-    fun setLegacyApiKey(key: String) {
-        prefs.edit().putString("legacy_api_key", key).apply()
+    fun getLegacyApiKey(): String? = prefs.getString(LEGACY_API_KEY_KEY, null)
+    fun setLegacyApiKey(key: String?) {
+        prefs.edit().putString(LEGACY_API_KEY_KEY, key).apply()
     }
 
-    // ── Helper functions for provider management ────────────────────────────────
-
-    /**
-     * Migrates existing provider configs from old format if needed.
-     * Called on first launch after this library version update.
-     */
     fun migrateLegacyConfigs() {
-        // Check if legacy API key exists and no provider configs exist
-        val hasLegacy = getLegacyApiKey() != null
-        val hasProviders = getProviderIds().isNotEmpty()
-
-        if (hasLegacy && !hasProviders) {
-            // Migrate: create a default "openai" provider with the legacy key
-            setApiKey("openai", getLegacyApiKey()!!)
-            setProviderConfig("openai", ProviderConfig(
-                id = "openai",
-                name = "OpenAI",
-                baseUrl = "https://api.openai.com/v1",
-                modelId = "gpt-4o",
-                protocol = ProviderProtocol.OPENAI_COMPATIBLE,
-                authType = ProviderAuthType.BEARER_TOKEN
-            ))
-            // Remove legacy key since we've migrated
+        val legacy = getLegacyApiKey()
+        if (!legacy.isNullOrBlank() && getProviderIds().isEmpty()) {
+            setApiKey("openai", legacy)
+            setProviderConfig(
+                "openai",
+                ProviderConfig(
+                    id = "openai",
+                    name = "OpenAI",
+                    baseUrl = "https://api.openai.com/v1",
+                    modelId = "gpt-4o",
+                    protocol = ProviderProtocol.OPENAI_COMPATIBLE,
+                    authType = ProviderAuthType.BEARER_TOKEN
+                )
+            )
+            llmChoice = "openai"
             setLegacyApiKey(null)
-            Log.i(TAG, "Migrated legacy API key to OpenAI provider config")
-        } else if (!hasLegacy && hasProviders) {
-            // Already on new format; nothing to do
-            Log.i(TAG, "Provider configs already in new format; legacy key absent")
-        } else if (hasLegacy && hasProviders) {
-            // Both exist; prefer provider configs, keep legacy as fallback
-            Log.i(TAG, "Both legacy key and provider configs exist; keeping provider configs primary")
         }
     }
 
-    // ── Companion object with constants ─────────────────────────────────────────
+    private fun providerPref(providerId: String) =
+        PROVIDER_PREFIX + providerId.lowercase().replace(" ", "_")
 
     companion object {
         private const val TAG = "SecureConfig"
-
-        // Provider config root key prefix
-        private const val KEY_PROVIDERS_ROOT = "providers"
-
-        // Legacy API key preference key
+        private const val PROVIDER_PREFIX = "providers/"
         private const val LEGACY_API_KEY_KEY = "legacy_api_key"
     }
 }
